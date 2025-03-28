@@ -13,6 +13,10 @@ import CarPredictionPage from './components/predictions/CarPredictionPage';
 import CustomersList from './components/customers/CustomersList';
 import CustomerDetails from './components/customers/CustomerDetails';
 import CustomerForm from './components/customers/CustomerForm';
+import ServicesList from './components/services/ServicesList';
+import ServiceForm from './components/services/ServiceForm';
+import AppointmentsList from './components/appointments/AppointmentsList';
+import AppointmentForm from './components/appointments/AppointmentForm';
 import Login from './pages/Login';
 import { isAuthenticated } from './api/auth';
 import DebugPanel from './components/DebugPanel';
@@ -131,6 +135,16 @@ const App: React.FC = () => {
               <Route path="customers/:id" element={<CustomerDetailsWrapper />} />
               <Route path="customers/:id/edit" element={<CustomerEditWrapper />} />
               
+              {/* Services routes */}
+              <Route path="services" element={<ServicesList />} />
+              <Route path="services/add" element={<ServiceForm />} />
+              <Route path="services/:id/edit" element={<ServiceEditWrapper />} />
+              
+              {/* Appointments routes */}
+              <Route path="appointments" element={<AppointmentsList />} />
+              <Route path="appointments/add" element={<AppointmentForm />} />
+              <Route path="appointments/:id/edit" element={<AppointmentEditWrapper />} />
+              
               {/* Service prediction routes */}
               <Route path="car-predictions/:id" element={<CarPredictionWrapper />} />
               
@@ -167,6 +181,16 @@ const CustomerDetailsWrapper: React.FC = () => {
 const CustomerEditWrapper: React.FC = () => {
   const id = parseInt(window.location.pathname.split('/')[2]);
   return <CustomerForm customerId={id} isEdit />;
+};
+
+const ServiceEditWrapper: React.FC = () => {
+  const id = parseInt(window.location.pathname.split('/')[2]);
+  return <ServiceForm serviceId={id} />;
+};
+
+const AppointmentEditWrapper: React.FC = () => {
+  const id = parseInt(window.location.pathname.split('/')[2]);
+  return <AppointmentForm appointmentId={id} />;
 };
 
 const CarPredictionWrapper: React.FC = () => {

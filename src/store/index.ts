@@ -4,6 +4,7 @@ import authReducer from './slices/authSlice';
 import carReducer from './slices/carSlice';
 import predictionReducer from './slices/predictionSlice';
 import customerReducer from './slices/customerSlice';
+import dashboardReducer from './slices/dashboardSlice';
 
 // Configure the Redux store
 export const store = configureStore({
@@ -12,6 +13,7 @@ export const store = configureStore({
     cars: carReducer,
     predictions: predictionReducer,
     customers: customerReducer,
+    dashboard: dashboardReducer,
     // Add more reducers as needed
   },
   devTools: process.env.NODE_ENV !== 'production',

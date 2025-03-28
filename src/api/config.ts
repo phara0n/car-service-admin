@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // Create an axios instance with default config
 const apiClient = axios.create({
-  baseURL: 'http://localhost:3000/api/v1',
+  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:3000/api/v1',
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
@@ -16,9 +16,9 @@ apiClient.interceptors.request.use(
     // Get token from localStorage
     const token = localStorage.getItem('token');
     
-    // If token exists, add to headers
+    // If token exists, add to headers with Bearer prefix
     if (token) {
-      config.headers.Authorization = token;
+      config.headers.Authorization = `Bearer ${token}`;
     }
     
     console.log(`API Request: ${config.method?.toUpperCase()} ${config.url}`);
