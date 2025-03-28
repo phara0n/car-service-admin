@@ -1,0 +1,151 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+ 
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+ 
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+ 
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
+ 
+    --secondary: 217.9 10.6% 64.9%;
+    --secondary-foreground: 210 40% 98%;
+ 
+    --muted: 220 14.3% 95.9%;
+    --muted-foreground: 220 8.9% 46.1%;
+ 
+    --accent: 217.9 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+ 
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+ 
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 221.2 83.2% 53.3%;
+ 
+    --radius: 0.5rem;
+  }
+ 
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+ 
+    --card: 222.2 84% 4.5%;
+    --card-foreground: 210 40% 98%;
+ 
+    --popover: 222.2 84% 4.5%;
+    --popover-foreground: 210 40% 98%;
+ 
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+ 
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+ 
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+ 
+    --accent: 217.2 91.2% 59.8%;
+    --accent-foreground: 210 40% 98%;
+ 
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+ 
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 224.3 76.3% 48%;
+  }
+}
+ 
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  html {
+    @apply scroll-smooth;
+  }
+  
+  html.dark {
+    color-scheme: dark;
+  }
+}
+
+/* Additional custom styles */
+.card {
+  @apply bg-card text-card-foreground rounded-lg border shadow-sm p-6;
+}
+
+.dashboard-card {
+  @apply bg-card text-card-foreground rounded-lg border border-border/30 shadow-sm p-4 transition-all hover:shadow-md hover:border-border/60;
+}
+
+.form-group {
+  @apply mb-4;
+}
+
+.form-label {
+  @apply block text-sm font-medium text-foreground mb-1;
+}
+
+.form-control {
+  @apply w-full px-3 py-2 border border-input bg-background text-foreground rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary;
+}
+
+.dashboard-link {
+  @apply flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground;
+}
+
+.dashboard-link.active {
+  @apply bg-primary text-primary-foreground hover:bg-primary/90;
+}
+
+.dashboard-sidebar {
+  @apply sticky top-0 flex flex-col p-4 bg-card dark:border-r border-border/10 dark:bg-dashboard-secondary/30 h-screen max-h-screen overflow-y-auto;
+}
+
+.dashboard-header {
+  @apply sticky top-0 z-30 flex items-center justify-between p-4 border-b border-border/10 bg-background/80 backdrop-blur-sm;
+}
+
+.dashboard-main {
+  @apply flex-1 p-4 md:p-6;
+}
+
+.dashboard-section-title {
+  @apply text-xl font-semibold mb-4 text-foreground;
+}
+
+.dashboard-subtitle {
+  @apply text-sm text-muted-foreground mb-6;
+}
+
+/* For webkit browsers */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-secondary/10 rounded-full;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-primary/50 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-primary/80;
+}

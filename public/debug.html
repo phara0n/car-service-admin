@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Debug Page</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    h1 {
+      color: #333;
+    }
+    button {
+      padding: 10px 15px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      margin: 10px 0;
+    }
+    pre {
+      background-color: #eee;
+      padding: 15px;
+      border-radius: 4px;
+      overflow: auto;
+    }
+    #log {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>React App Debug Page</h1>
+  <p>This page can help debug issues with the React application.</p>
+
+  <button id="checkReact">Check React Environment</button>
+  <button id="checkBrowser">Show Browser Info</button>
+  <button id="testCors">Test CORS Access</button>
+  
+  <div id="log"></div>
+
+  <script>
+    const log = document.getElementById('log');
+    
+    function appendLog(text, isError = false) {
+      const entry = document.createElement('pre');
+      entry.textContent = text;
+      if (isError) {
+        entry.style.color = 'red';
+      }
+      log.appendChild(entry);
+    }
+
+    document.getElementById('checkBrowser').addEventListener('click', () => {
+      try {
+        const browserInfo = {
+          userAgent: navigator.userAgent,
+          platform: navigator.platform,
+          language: navigator.language,
+          cookieEnabled: navigator.cookieEnabled,
+          onLine: navigator.onLine,
+          hardwareConcurrency: navigator.hardwareConcurrency,
+          maxTouchPoints: navigator.maxTouchPoints,
+          deviceMemory: navigator.deviceMemory || 'Not available'
+        };
+        
+        appendLog('Browser Information:\n' + JSON.stringify(browserInfo, null, 2));
+      } catch (error) {
+        appendLog('Error checking browser info: ' + error.message, true);
+      }
+    });
+
+    document.getElementById('checkReact').addEventListener('click', () => {
+      try {
+        // Check if React global variables exist
+        const reactLoaded = window.React !== undefined;
+        const reactDomLoaded = window.ReactDOM !== undefined;
+        const reduxLoaded = window.Redux !== undefined;
+        
+        appendLog(`React loaded: ${reactLoaded}\nReactDOM loaded: ${reactDomLoaded}\nRedux loaded: ${reduxLoaded}`);
+        
+        // Check for common polyfills
+        const promisesSupported = typeof Promise !== 'undefined';
+        const fetchSupported = typeof fetch !== 'undefined';
+        
+        appendLog(`Promises supported: ${promisesSupported}\nFetch API supported: ${fetchSupported}`);
+      } catch (error) {
+        appendLog('Error checking React environment: ' + error.message, true);
+      }
+    });
+    
+    document.getElementById('testCors').addEventListener('click', async () => {
+      try {
+        appendLog('Testing API access...');
+        const response = await fetch('/api/v1/test', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          appendLog('API response: ' + JSON.stringify(data, null, 2));
+        } else {
+          appendLog(`API error: ${response.status} ${response.statusText}`, true);
+        }
+      } catch (error) {
+        appendLog('CORS or network error: ' + error.message, true);
+      }
+    });
+    
+    // Log initial info
+    appendLog('Debug page loaded at: ' + new Date().toLocaleString());
+  </script>
+</body>
+</html> 
