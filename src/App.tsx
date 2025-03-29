@@ -125,7 +125,7 @@ const App: React.FC = () => {
               
               {/* Cars routes */}
               <Route path="cars" element={<CarsList />} />
-              <Route path="cars/add" element={<CarForm />} />
+              <Route path="cars/new" element={<CarForm />} />
               <Route path="cars/:id" element={<CarDetailsWrapper />} />
               <Route path="cars/:id/edit" element={<CarEditWrapper />} />
               
@@ -169,8 +169,7 @@ const CarDetailsWrapper: React.FC = () => {
 };
 
 const CarEditWrapper: React.FC = () => {
-  const id = parseInt(window.location.pathname.split('/')[2]);
-  return <CarForm carId={id} isEdit />;
+  return <CarForm />;
 };
 
 const CustomerDetailsWrapper: React.FC = () => {

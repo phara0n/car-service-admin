@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../../store';
-import { addCar, editCar, fetchCarById, clearSelectedCar } from '../../store/slices/carSlice';
-import { fetchCustomers } from '../../store/slices/customerSlice';
-import { addCustomer } from '../../store/slices/customerSlice';
-import { Car } from '../../api/cars';
+import { fetchCustomers, addCustomer } from '../../store/slices/customerSlice';
+import { fetchCarById, addCar, editCar, fetchCars, clearSelectedCar } from '../../store/slices/carSlice';
 import { Customer } from '../../api/customers';
+import { Car } from '../../api/cars';
+import { toast } from 'react-toastify';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import { PlusCircle, X, Check, Car as CarIcon, User } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -15,21 +16,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select';
-import { PlusCircle, UserPlus, X, CheckCircle, Car as CarIcon } from 'lucide-react';
 
-interface CarFormProps {
-  carId?: number;
-  isEdit?: boolean;
-}
-
-const CarForm: React.FC<CarFormProps> = ({ carId, isEdit = false }) => {
-  const dispatch = useAppDispatch();
-  const navigate = useNavigate();
-  const { selectedCar, loading, error } = useAppSelector(state => state.cars);
-  const { customers, loading: customersLoading } = useAppSelector(state => state.customers);
+const CarForm: React.FC = () => {
+  const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const isEdit = Boolean(id);
+  const carId = id ? parseInt(id, 10) : undefined;
   
+  const navigate = useNavigate();
+  const dispatch = useAppDispatch();
+  
+  const { customers } = useAppSelector(state => state.customers);
+  const { selectedCar, loading, error } = useAppSelector(state => state.cars);
+  
+  // Add separate error state for the component
+  const [apiError, setApiError] = useState<string | null>(null);
+  
+  // Form states
   const [formData, setFormData] = useState<Partial<Car>>({
-    customer_id: 0,
+    customer_id: null,
     make: '',
     model: '',
     year: new Date().getFullYear(),
@@ -37,14 +42,16 @@ const CarForm: React.FC<CarFormProps> = ({ carId, isEdit = false }) => {
     license_plate: '',
     initial_mileage: 0,
     current_mileage: 0,
-    // Tunisian market specific fields
     customs_clearance_number: '',
     technical_visit_date: '',
     insurance_category: ''
   });
   
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
   const [showCustomerForm, setShowCustomerForm] = useState(false);
+  
+  // Customer form states
   const [customerFormData, setCustomerFormData] = useState<Partial<Customer>>({
     name: '',
     email: '',
@@ -53,22 +60,45 @@ const CarForm: React.FC<CarFormProps> = ({ carId, isEdit = false }) => {
     national_id: '',
     region_code: ''
   });
+  
   const [customerFormErrors, setCustomerFormErrors] = useState<Record<string, string>>({});
   
+  // Load data
   useEffect(() => {
-    // Fetch car details if editing
-    if (isEdit && carId) {
-      dispatch(fetchCarById(carId));
-    }
-    
-    // Fetch customers list
+    // Load customers list for dropdown
     dispatch(fetchCustomers());
     
-    // Cleanup on unmount
+    // Create a function to load data asynchronously
+    const loadData = async () => {
+      // If editing, fetch the car details
+      if (isEdit && carId) {
+        try {
+          await dispatch(fetchCarById(carId)).unwrap();
+          setApiError(null);
+        } catch (error) {
+          console.error('Error fetching car:', error);
+          setApiError('Error loading car data. Please try again.');
+        }
+      }
+      
+      // Check for customer query parameter (when adding a car from customer view)
+      const customerIdParam = searchParams.get('customer');
+      if (customerIdParam && !isEdit) {
+        const customerId = parseInt(customerIdParam, 10);
+        setFormData(prev => ({
+          ...prev,
+          customer_id: customerId
+        }));
+      }
+    };
+    
+    loadData();
+    
+    // Cleanup
     return () => {
       dispatch(clearSelectedCar());
     };
-  }, [dispatch, carId, isEdit]);
+  }, [dispatch, isEdit, carId, searchParams]);
   
   // Populate form with car data when selectedCar changes
   useEffect(() => {
@@ -91,57 +121,9 @@ const CarForm: React.FC<CarFormProps> = ({ carId, isEdit = false }) => {
     }
   }, [selectedCar, isEdit]);
   
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value, type } = e.target as HTMLInputElement;
-    
-    // Convert numeric fields to numbers
-    if (
-      ['customer_id', 'year', 'initial_mileage', 'current_mileage'].includes(name) && 
-      type === 'number'
-    ) {
-      setFormData({
-        ...formData,
-        [name]: value === '' ? 0 : parseInt(value, 10)
-      });
-    } else {
-      setFormData({
-        ...formData,
-        [name]: value
-      });
-    }
-    
-    // Clear error for this field
-    if (formErrors[name]) {
-      setFormErrors({
-        ...formErrors,
-        [name]: ''
-      });
-    }
-  };
-  
-  const handleCustomerChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    
-    setCustomerFormData({
-      ...customerFormData,
-      [name]: value
-    });
-    
-    // Clear error for this field
-    if (customerFormErrors[name]) {
-      setCustomerFormErrors({
-        ...customerFormErrors,
-        [name]: ''
-      });
-    }
-  };
-  
+  // Form validation
   const validateForm = (): boolean => {
     const errors: Record<string, string> = {};
-    
-    if (!formData.customer_id) {
-      errors.customer_id = 'Customer ID is required';
-    }
     
     if (!formData.make?.trim()) {
       errors.make = 'Make is required';
@@ -159,15 +141,17 @@ const CarForm: React.FC<CarFormProps> = ({ carId, isEdit = false }) => {
       errors.license_plate = 'License plate is required';
     }
     
-    if (!formData.current_mileage) {
-      errors.current_mileage = 'Current mileage is required';
+    if (formData.initial_mileage === undefined || formData.initial_mileage < 0) {
+      errors.initial_mileage = 'Initial mileage is required and must be positive';
     }
     
-    if (!formData.initial_mileage) {
-      errors.initial_mileage = 'Initial mileage is required';
+    if (formData.current_mileage === undefined || formData.current_mileage < 0) {
+      errors.current_mileage = 'Current mileage is required and must be positive';
     }
     
-    if (formData.current_mileage && formData.initial_mileage && formData.current_mileage < formData.initial_mileage) {
+    if (formData.current_mileage !== undefined && 
+        formData.initial_mileage !== undefined && 
+        formData.current_mileage < formData.initial_mileage) {
       errors.current_mileage = 'Current mileage cannot be less than initial mileage';
     }
     
@@ -175,6 +159,7 @@ const CarForm: React.FC<CarFormProps> = ({ carId, isEdit = false }) => {
     return Object.keys(errors).length === 0;
   };
   
+  // Customer form validation
   const validateCustomerForm = (): boolean => {
     const errors: Record<string, string> = {};
     
@@ -184,7 +169,7 @@ const CarForm: React.FC<CarFormProps> = ({ carId, isEdit = false }) => {
     
     if (!customerFormData.email?.trim()) {
       errors.email = 'Email is required';
-    } else if (!/\S+@\S+\.\S+/.test(customerFormData.email)) {
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerFormData.email)) {
       errors.email = 'Please enter a valid email address';
     }
     
@@ -196,15 +181,74 @@ const CarForm: React.FC<CarFormProps> = ({ carId, isEdit = false }) => {
       errors.address = 'Address is required';
     }
     
-    // Tunisia-specific validation
-    if (customerFormData.national_id && customerFormData.national_id.length > 0 && customerFormData.national_id.length !== 8) {
-      errors.national_id = 'National ID must be 8 characters';
-    }
-    
     setCustomerFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
   
+  // Input change handlers
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value, type } = e.target as HTMLInputElement;
+    
+    // Convert numeric fields to numbers
+    if (['year', 'initial_mileage', 'current_mileage'].includes(name) && type === 'number') {
+      setFormData({
+        ...formData,
+        [name]: value === '' ? undefined : parseInt(value, 10)
+      });
+    } else {
+      setFormData({
+        ...formData,
+        [name]: value
+      });
+    }
+    
+    // Clear error for this field
+    if (formErrors[name]) {
+      setFormErrors({
+        ...formErrors,
+        [name]: ''
+      });
+    }
+  };
+  
+  // Customer select handler - convert to number or null
+  const handleCustomerSelectChange = (value: string) => {
+    // Convert the select value to a proper customer_id (null or number)
+    const customerId = value === 'no-customer' ? null : parseInt(value, 10);
+    
+    setFormData({
+      ...formData,
+      customer_id: customerId
+    });
+    
+    // Clear any errors for this field
+    if (formErrors.customer_id) {
+      setFormErrors({
+        ...formErrors,
+        customer_id: ''
+      });
+    }
+  };
+  
+  // Customer form change handler
+  const handleCustomerChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    
+    setCustomerFormData({
+      ...customerFormData,
+      [name]: value
+    });
+    
+    // Clear error for this field
+    if (customerFormErrors[name]) {
+      setCustomerFormErrors({
+        ...customerFormErrors,
+        [name]: ''
+      });
+    }
+  };
+  
+  // Create customer handler
   const handleCreateCustomer = async () => {
     if (!validateCustomerForm()) {
       return;
@@ -212,13 +256,14 @@ const CarForm: React.FC<CarFormProps> = ({ carId, isEdit = false }) => {
     
     try {
       const newCustomer = await dispatch(addCustomer(customerFormData)).unwrap();
+      
+      // Update form data with the new customer
       setFormData({
         ...formData,
         customer_id: newCustomer.id
       });
-      setShowCustomerForm(false);
       
-      // Clear customer form data
+      // Reset customer form and hide it
       setCustomerFormData({
         name: '',
         email: '',
@@ -227,11 +272,15 @@ const CarForm: React.FC<CarFormProps> = ({ carId, isEdit = false }) => {
         national_id: '',
         region_code: ''
       });
+      setShowCustomerForm(false);
+      
+      toast.success(`Customer ${newCustomer.name} created successfully`);
     } catch (error) {
-      console.error('Error creating customer:', error);
+      toast.error(`Failed to create customer: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
   
+  // Form submission handler
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -239,67 +288,93 @@ const CarForm: React.FC<CarFormProps> = ({ carId, isEdit = false }) => {
       return;
     }
     
+    setSubmitting(true);
+    
     try {
+      // Create a car object with the form data
+      const carData: Omit<Car, 'id' | 'created_at' | 'updated_at' | 'average_daily_mileage'> = {
+        // Ensure customer_id is the right type (null or number)
+        customer_id: formData.customer_id === undefined ? null : formData.customer_id,
+        make: formData.make || '',
+        model: formData.model || '',
+        year: formData.year || new Date().getFullYear(),
+        vin: formData.vin || '',
+        license_plate: formData.license_plate || '',
+        initial_mileage: formData.initial_mileage || 0,
+        current_mileage: formData.current_mileage || 0,
+        customs_clearance_number: formData.customs_clearance_number,
+        technical_visit_date: formData.technical_visit_date,
+        insurance_category: formData.insurance_category
+      };
+      
+      // Log the data being submitted
+      console.log(`Submitting car data:`, carData);
+      console.log(`customer_id type: ${typeof carData.customer_id}, value: ${carData.customer_id}`);
+      
       if (isEdit && carId) {
-        await dispatch(editCar({ carId, carData: formData })).unwrap();
-        navigate(`/cars/${carId}`);
+        // Edit existing car
+        await dispatch(editCar({ carId, carData })).unwrap();
+        toast.success('Car updated successfully');
       } else {
-        const result = await dispatch(addCar(formData)).unwrap();
-        navigate(`/cars/${result.id}`);
+        // Create new car
+        await dispatch(addCar(carData)).unwrap();
+        toast.success('Car added successfully');
       }
+      
+      // Refresh car data
+      dispatch(fetchCars());
+      
+      // Navigate back to cars list
+      navigate('/cars');
     } catch (error) {
+      toast.error(`Failed to save car: ${error instanceof Error ? error.message : 'Unknown error'}`);
       console.error('Error saving car:', error);
+    } finally {
+      setSubmitting(false);
     }
   };
   
+  // Loading state
   if (isEdit && loading && !selectedCar) {
-    return <div className="flex items-center justify-center py-8">
-      <div className="animate-pulse">Loading car data...</div>
-    </div>;
+    return (
+      <div className="flex justify-center items-center py-12">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
   }
   
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="flex items-center space-x-2 mb-6">
-        <CarIcon size={24} className="text-primary" />
-        <h1 className="text-2xl font-bold">
-          {isEdit ? 'Edit Car' : 'Add New Car'}
-        </h1>
+    <div className="container mx-auto p-4 max-w-4xl">
+      <div className="flex items-center mb-6">
+        <CarIcon className="mr-2 h-6 w-6 text-primary" />
+        <h1 className="text-2xl font-bold">{isEdit ? 'Edit Car' : 'Add New Car'}</h1>
       </div>
       
-      {error && (
-        <div className="mb-6 p-4 bg-destructive/10 border border-destructive text-destructive rounded-md">
-          {error}
+      {/* Show API errors */}
+      {(apiError || error) && (
+        <div className="mb-6 p-4 bg-destructive/10 border border-destructive rounded-md text-destructive">
+          {apiError || error}
         </div>
       )}
       
-      <form onSubmit={handleSubmit} className="bg-card text-card-foreground rounded-lg border shadow-md">
+      <form onSubmit={handleSubmit} className="bg-card border rounded-lg shadow-sm">
         <div className="p-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Customer selection */}
             <div className="space-y-2">
-              <label htmlFor="customer_id" className="block text-sm font-medium">
-                Customer <span className="text-destructive">*</span>
+              <label htmlFor="customer" className="block text-sm font-medium">
+                Customer
               </label>
-              <div className="flex items-center space-x-2">
+              <div className="flex gap-2">
                 <Select
-                  value={formData.customer_id?.toString() || ""}
-                  onValueChange={(value) => {
-                    setFormData({
-                      ...formData,
-                      customer_id: parseInt(value, 10)
-                    });
-                    if (formErrors.customer_id) {
-                      setFormErrors({
-                        ...formErrors,
-                        customer_id: ''
-                      });
-                    }
-                  }}
+                  value={formData.customer_id === null ? 'no-customer' : formData.customer_id?.toString()}
+                  onValueChange={handleCustomerSelectChange}
                 >
-                  <SelectTrigger className={`w-full ${formErrors.customer_id ? 'border-destructive' : ''}`}>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select a customer" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="no-customer">No Customer</SelectItem>
                     {customers.map(customer => (
                       <SelectItem key={customer.id} value={customer.id.toString()}>
                         {customer.name} - {customer.email}
@@ -307,238 +382,99 @@ const CarForm: React.FC<CarFormProps> = ({ carId, isEdit = false }) => {
                     ))}
                   </SelectContent>
                 </Select>
+                
                 <Button
                   type="button"
                   onClick={() => setShowCustomerForm(!showCustomerForm)}
-                  variant={showCustomerForm ? "destructive" : "taxi"}
-                  size="sm"
+                  variant={showCustomerForm ? "destructive" : "outline"}
+                  size="icon"
+                  className="h-10 w-10"
                 >
-                  {showCustomerForm ? <X size={16} /> : <UserPlus size={16} />}
+                  {showCustomerForm ? <X size={16} /> : <PlusCircle size={16} />}
                 </Button>
               </div>
               {formErrors.customer_id && (
-                <p className="text-destructive text-sm mt-1">{formErrors.customer_id}</p>
+                <p className="mt-1 text-sm text-destructive">{formErrors.customer_id}</p>
               )}
             </div>
             
-            {/* Customer Form */}
-            {showCustomerForm && (
-              <div className="col-span-1 md:col-span-2 bg-muted/40 p-6 rounded-lg border border-border mb-4">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-medium flex items-center">
-                    <UserPlus size={18} className="mr-2 text-primary" />
-                    Add New Customer
-                  </h3>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={() => setShowCustomerForm(false)}
-                    className="h-8 w-8 p-0"
-                  >
-                    <X size={16} />
-                  </Button>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label htmlFor="name" className="block text-sm font-medium">
-                      Full Name <span className="text-destructive">*</span>
-                    </label>
-                    <Input
-                      id="name"
-                      name="name"
-                      className={customerFormErrors.name ? 'border-destructive' : ''}
-                      value={customerFormData.name || ''}
-                      onChange={handleCustomerChange}
-                    />
-                    {customerFormErrors.name && (
-                      <p className="text-destructive text-sm">{customerFormErrors.name}</p>
-                    )}
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <label htmlFor="email" className="block text-sm font-medium">
-                      Email <span className="text-destructive">*</span>
-                    </label>
-                    <Input
-                      type="email"
-                      id="email"
-                      name="email"
-                      className={customerFormErrors.email ? 'border-destructive' : ''}
-                      value={customerFormData.email || ''}
-                      onChange={handleCustomerChange}
-                    />
-                    {customerFormErrors.email && (
-                      <p className="text-destructive text-sm">{customerFormErrors.email}</p>
-                    )}
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <label htmlFor="phone" className="block text-sm font-medium">
-                      Phone Number <span className="text-destructive">*</span>
-                    </label>
-                    <Input
-                      type="tel"
-                      id="phone"
-                      name="phone"
-                      className={customerFormErrors.phone ? 'border-destructive' : ''}
-                      value={customerFormData.phone || ''}
-                      onChange={handleCustomerChange}
-                    />
-                    {customerFormErrors.phone && (
-                      <p className="text-destructive text-sm">{customerFormErrors.phone}</p>
-                    )}
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <label htmlFor="address" className="block text-sm font-medium">
-                      Address <span className="text-destructive">*</span>
-                    </label>
-                    <textarea
-                      id="address"
-                      name="address"
-                      rows={3}
-                      className={`w-full rounded-md border ${customerFormErrors.address ? 'border-destructive' : 'border-input'} bg-background px-3 py-2 text-sm`}
-                      value={customerFormData.address || ''}
-                      onChange={handleCustomerChange}
-                    />
-                    {customerFormErrors.address && (
-                      <p className="text-destructive text-sm">{customerFormErrors.address}</p>
-                    )}
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                  <div className="space-y-2">
-                    <label htmlFor="national_id" className="block text-sm font-medium">
-                      National ID
-                    </label>
-                    <Input
-                      type="text"
-                      id="national_id"
-                      name="national_id"
-                      className={customerFormErrors.national_id ? 'border-destructive' : ''}
-                      value={customerFormData.national_id || ''}
-                      onChange={handleCustomerChange}
-                      placeholder="8-digit national ID"
-                    />
-                    {customerFormErrors.national_id && (
-                      <p className="text-destructive text-sm">{customerFormErrors.national_id}</p>
-                    )}
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <label htmlFor="region_code" className="block text-sm font-medium">
-                      Region Code
-                    </label>
-                    <Input
-                      type="text"
-                      id="region_code"
-                      name="region_code"
-                      value={customerFormData.region_code || ''}
-                      onChange={handleCustomerChange}
-                      placeholder="e.g. TUN, SFA, KAI"
-                    />
-                  </div>
-                </div>
-                
-                <div className="mt-4 flex space-x-2">
-                  <Button
-                    type="button"
-                    onClick={handleCreateCustomer}
-                    variant="taxi"
-                    className="flex items-center"
-                  >
-                    <CheckCircle size={16} className="mr-2" />
-                    Create Customer
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={() => setShowCustomerForm(false)}
-                    variant="outline"
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            )}
-            
-            <div className="space-y-2">
-              <label htmlFor="license_plate" className="block text-sm font-medium">
-                License Plate <span className="text-destructive">*</span>
-              </label>
-              <Input
-                type="text"
-                id="license_plate"
-                name="license_plate"
-                className={formErrors.license_plate ? 'border-destructive' : ''}
-                value={formData.license_plate || ''}
-                onChange={handleChange}
-              />
-              {formErrors.license_plate && (
-                <p className="text-destructive text-sm">{formErrors.license_plate}</p>
-              )}
-            </div>
-            
+            {/* Make */}
             <div className="space-y-2">
               <label htmlFor="make" className="block text-sm font-medium">
                 Make <span className="text-destructive">*</span>
               </label>
               <Input
-                type="text"
                 id="make"
                 name="make"
-                className={formErrors.make ? 'border-destructive' : ''}
                 value={formData.make || ''}
                 onChange={handleChange}
+                className={formErrors.make ? 'border-destructive' : ''}
               />
               {formErrors.make && (
-                <p className="text-destructive text-sm">{formErrors.make}</p>
+                <p className="mt-1 text-sm text-destructive">{formErrors.make}</p>
               )}
             </div>
             
+            {/* Model */}
             <div className="space-y-2">
               <label htmlFor="model" className="block text-sm font-medium">
                 Model <span className="text-destructive">*</span>
               </label>
               <Input
-                type="text"
                 id="model"
                 name="model"
-                className={formErrors.model ? 'border-destructive' : ''}
                 value={formData.model || ''}
                 onChange={handleChange}
+                className={formErrors.model ? 'border-destructive' : ''}
               />
               {formErrors.model && (
-                <p className="text-destructive text-sm">{formErrors.model}</p>
+                <p className="mt-1 text-sm text-destructive">{formErrors.model}</p>
               )}
             </div>
             
+            {/* Year */}
             <div className="space-y-2">
               <label htmlFor="year" className="block text-sm font-medium">
                 Year <span className="text-destructive">*</span>
               </label>
               <Input
-                type="number"
                 id="year"
                 name="year"
-                className={formErrors.year ? 'border-destructive' : ''}
+                type="number"
                 value={formData.year || ''}
                 onChange={handleChange}
-                min="1900"
+                min={1900}
                 max={new Date().getFullYear() + 1}
+                className={formErrors.year ? 'border-destructive' : ''}
               />
               {formErrors.year && (
-                <p className="text-destructive text-sm">{formErrors.year}</p>
+                <p className="mt-1 text-sm text-destructive">{formErrors.year}</p>
               )}
             </div>
             
+            {/* License Plate */}
+            <div className="space-y-2">
+              <label htmlFor="license_plate" className="block text-sm font-medium">
+                License Plate <span className="text-destructive">*</span>
+              </label>
+              <Input
+                id="license_plate"
+                name="license_plate"
+                value={formData.license_plate || ''}
+                onChange={handleChange}
+                className={formErrors.license_plate ? 'border-destructive' : ''}
+              />
+              {formErrors.license_plate && (
+                <p className="mt-1 text-sm text-destructive">{formErrors.license_plate}</p>
+              )}
+            </div>
+            
+            {/* VIN */}
             <div className="space-y-2">
               <label htmlFor="vin" className="block text-sm font-medium">
                 VIN
               </label>
               <Input
-                type="text"
                 id="vin"
                 name="vin"
                 value={formData.vin || ''}
@@ -546,55 +482,55 @@ const CarForm: React.FC<CarFormProps> = ({ carId, isEdit = false }) => {
               />
             </div>
             
+            {/* Initial Mileage */}
             <div className="space-y-2">
               <label htmlFor="initial_mileage" className="block text-sm font-medium">
                 Initial Mileage <span className="text-destructive">*</span>
               </label>
               <Input
-                type="number"
                 id="initial_mileage"
                 name="initial_mileage"
-                className={formErrors.initial_mileage ? 'border-destructive' : ''}
-                value={formData.initial_mileage || 0}
+                type="number"
+                value={formData.initial_mileage || ''}
                 onChange={handleChange}
-                min="0"
+                min={0}
+                className={formErrors.initial_mileage ? 'border-destructive' : ''}
               />
               {formErrors.initial_mileage && (
-                <p className="text-destructive text-sm">{formErrors.initial_mileage}</p>
+                <p className="mt-1 text-sm text-destructive">{formErrors.initial_mileage}</p>
               )}
             </div>
             
+            {/* Current Mileage */}
             <div className="space-y-2">
               <label htmlFor="current_mileage" className="block text-sm font-medium">
                 Current Mileage <span className="text-destructive">*</span>
               </label>
               <Input
-                type="number"
                 id="current_mileage"
                 name="current_mileage"
-                className={formErrors.current_mileage ? 'border-destructive' : ''}
-                value={formData.current_mileage || 0}
+                type="number"
+                value={formData.current_mileage || ''}
                 onChange={handleChange}
                 min={formData.initial_mileage || 0}
+                className={formErrors.current_mileage ? 'border-destructive' : ''}
               />
               {formErrors.current_mileage && (
-                <p className="text-destructive text-sm">{formErrors.current_mileage}</p>
+                <p className="mt-1 text-sm text-destructive">{formErrors.current_mileage}</p>
               )}
             </div>
           </div>
           
-          <div className="mt-8 mb-4 border-t border-border pt-6">
-            <h2 className="text-lg font-semibold mb-4 flex items-center">
-              <span className="w-1.5 h-5 bg-primary mr-2 rounded-sm"></span>
-              Tunisian Market Information
-            </h2>
+          {/* Tunisian Market Information */}
+          <div className="mt-8 border-t pt-6">
+            <h2 className="text-lg font-medium mb-4">Tunisian Market Information</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Customs Clearance Number */}
               <div className="space-y-2">
                 <label htmlFor="customs_clearance_number" className="block text-sm font-medium">
                   Customs Clearance Number
                 </label>
                 <Input
-                  type="text"
                   id="customs_clearance_number"
                   name="customs_clearance_number"
                   value={formData.customs_clearance_number || ''}
@@ -602,25 +538,26 @@ const CarForm: React.FC<CarFormProps> = ({ carId, isEdit = false }) => {
                 />
               </div>
               
+              {/* Technical Visit Date */}
               <div className="space-y-2">
                 <label htmlFor="technical_visit_date" className="block text-sm font-medium">
                   Technical Visit Date
                 </label>
                 <Input
-                  type="date"
                   id="technical_visit_date"
                   name="technical_visit_date"
+                  type="date"
                   value={formData.technical_visit_date || ''}
                   onChange={handleChange}
                 />
               </div>
               
+              {/* Insurance Category */}
               <div className="space-y-2">
                 <label htmlFor="insurance_category" className="block text-sm font-medium">
                   Insurance Category
                 </label>
                 <Input
-                  type="text"
                   id="insurance_category"
                   name="insurance_category"
                   value={formData.insurance_category || ''}
@@ -630,21 +567,161 @@ const CarForm: React.FC<CarFormProps> = ({ carId, isEdit = false }) => {
             </div>
           </div>
           
-          <div className="mt-6 flex space-x-3">
-            <Button
-              type="submit"
-              disabled={loading}
-              variant="taxi"
-              className="font-semibold"
-            >
-              {loading ? 'Saving...' : isEdit ? 'Update Car' : 'Add Car'}
-            </Button>
+          {/* Customer Form (when shown) */}
+          {showCustomerForm && (
+            <div className="mt-8 border-t pt-6 bg-muted/20 p-4 rounded-lg">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-medium flex items-center">
+                  <User className="mr-2 h-5 w-5 text-primary" />
+                  Create New Customer
+                </h2>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowCustomerForm(false)}
+                >
+                  <X size={16} className="mr-1" /> Close
+                </Button>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Customer Name */}
+                <div className="space-y-2">
+                  <label htmlFor="name" className="block text-sm font-medium">
+                    Name <span className="text-destructive">*</span>
+                  </label>
+                  <Input
+                    id="name"
+                    name="name"
+                    value={customerFormData.name || ''}
+                    onChange={handleCustomerChange}
+                    className={customerFormErrors.name ? 'border-destructive' : ''}
+                  />
+                  {customerFormErrors.name && (
+                    <p className="mt-1 text-sm text-destructive">{customerFormErrors.name}</p>
+                  )}
+                </div>
+                
+                {/* Customer Email */}
+                <div className="space-y-2">
+                  <label htmlFor="email" className="block text-sm font-medium">
+                    Email <span className="text-destructive">*</span>
+                  </label>
+                  <Input
+                    id="email"
+                    name="email"
+                    type="email"
+                    value={customerFormData.email || ''}
+                    onChange={handleCustomerChange}
+                    className={customerFormErrors.email ? 'border-destructive' : ''}
+                  />
+                  {customerFormErrors.email && (
+                    <p className="mt-1 text-sm text-destructive">{customerFormErrors.email}</p>
+                  )}
+                </div>
+                
+                {/* Customer Phone */}
+                <div className="space-y-2">
+                  <label htmlFor="phone" className="block text-sm font-medium">
+                    Phone <span className="text-destructive">*</span>
+                  </label>
+                  <Input
+                    id="phone"
+                    name="phone"
+                    value={customerFormData.phone || ''}
+                    onChange={handleCustomerChange}
+                    className={customerFormErrors.phone ? 'border-destructive' : ''}
+                  />
+                  {customerFormErrors.phone && (
+                    <p className="mt-1 text-sm text-destructive">{customerFormErrors.phone}</p>
+                  )}
+                </div>
+                
+                {/* Customer Address */}
+                <div className="space-y-2">
+                  <label htmlFor="address" className="block text-sm font-medium">
+                    Address <span className="text-destructive">*</span>
+                  </label>
+                  <Input
+                    id="address"
+                    name="address"
+                    value={customerFormData.address || ''}
+                    onChange={handleCustomerChange}
+                    className={customerFormErrors.address ? 'border-destructive' : ''}
+                  />
+                  {customerFormErrors.address && (
+                    <p className="mt-1 text-sm text-destructive">{customerFormErrors.address}</p>
+                  )}
+                </div>
+                
+                {/* Customer National ID */}
+                <div className="space-y-2">
+                  <label htmlFor="national_id" className="block text-sm font-medium">
+                    National ID
+                  </label>
+                  <Input
+                    id="national_id"
+                    name="national_id"
+                    value={customerFormData.national_id || ''}
+                    onChange={handleCustomerChange}
+                  />
+                </div>
+                
+                {/* Customer Region Code */}
+                <div className="space-y-2">
+                  <label htmlFor="region_code" className="block text-sm font-medium">
+                    Region Code
+                  </label>
+                  <Select 
+                    value={customerFormData.region_code || undefined} 
+                    onValueChange={(value) => {
+                      setCustomerFormData({
+                        ...customerFormData,
+                        region_code: value
+                      });
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a region" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {['TUN', 'SFA', 'SOU', 'KAI', 'BIZ', 'NAB', 'BEJ', 'JEN', 'KEF', 'SIL', 'KAS', 'MON', 'MAH', 'GAB', 'TOZ', 'GFS', 'MED', 'TAT'].map(code => (
+                        <SelectItem key={code} value={code}>{code}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              
+              <div className="mt-4">
+                <Button
+                  type="button"
+                  onClick={handleCreateCustomer}
+                  variant="default"
+                  className="mr-2"
+                >
+                  <Check size={16} className="mr-1" /> Create Customer
+                </Button>
+              </div>
+            </div>
+          )}
+          
+          {/* Form Actions */}
+          <div className="mt-8 flex justify-end gap-2">
             <Button
               type="button"
               variant="outline"
               onClick={() => navigate('/cars')}
             >
               Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={submitting}
+              variant="taxi"
+            >
+              {submitting ? 'Saving...' : isEdit ? 'Update Car' : 'Add Car'}
             </Button>
           </div>
         </div>

@@ -1,306 +1,233 @@
-import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../../store';
 import { fetchCustomers, removeCustomer } from '../../store/slices/customerSlice';
-import { 
-  Search, 
-  Plus, 
-  Eye, 
-  Edit, 
-  Car, 
-  FilterX, 
-  MapPin,
-  Trash2
-} from 'lucide-react';
+import { fetchCars } from '../../store/slices/carSlice';
 import { Button } from '../ui/button';
-import { Card } from '../ui/card';
 import { Input } from '../ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../ui/select';
-import CustomerCarsModal from './CustomerCarsModal';
-import DeleteConfirmation from '../ui/delete-confirmation';
 import { toast } from 'react-toastify';
+import { UserPlus, Search, Trash2, Edit, Car as CarIcon, PhoneCall } from 'lucide-react';
+import CustomerCarsModal from './CustomerCarsModal';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../ui/table';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../ui/alert-dialog';
 
 const CustomersList: React.FC = () => {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const { customers, loading, error } = useAppSelector(state => state.customers);
-  
+  const { cars } = useAppSelector(state => state.cars);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterRegion, setFilterRegion] = useState('all');
-  const [carsModalOpen, setCarsModalOpen] = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState<{ id: number; name: string } | null>(null);
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [customerToDelete, setCustomerToDelete] = useState<{ id: number; name: string } | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-  
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [customerToDelete, setCustomerToDelete] = useState<number | null>(null);
+  const [customerCarsModalOpen, setCustomerCarsModalOpen] = useState(false);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null);
+
+  // Load customers and cars data
   useEffect(() => {
     dispatch(fetchCustomers());
+    dispatch(fetchCars());
   }, [dispatch]);
-  
-  // Function to handle opening the cars modal
-  const handleOpenCarsModal = (customerId: number, customerName: string) => {
-    setSelectedCustomer({ id: customerId, name: customerName });
-    setCarsModalOpen(true);
+
+  // Function to get number of cars for a customer
+  const getCustomerCarCount = useCallback((customerId: number): number => {
+    // Convert both IDs to the same type (number) before comparing
+    return cars.filter(car => {
+      // Normalize customer ID from car
+      const carCustomerId = typeof car.customer_id === 'string' 
+        ? parseInt(car.customer_id, 10) 
+        : car.customer_id;
+      
+      // Compare with the customer ID
+      return carCustomerId === customerId;
+    }).length;
+  }, [cars]);
+
+  // Handle delete confirmation
+  const handleDeleteClick = (customerId: number) => {
+    setCustomerToDelete(customerId);
+    setDeleteDialogOpen(true);
   };
-  
-  // Function to handle deleting a customer
-  const handleDeleteCustomer = (customerId: number, customerName: string) => {
-    setCustomerToDelete({ id: customerId, name: customerName });
-    setDeleteConfirmOpen(true);
-  };
-  
-  // Function to confirm deletion
-  const confirmDeleteCustomer = async () => {
-    if (!customerToDelete) return;
-    
-    setIsDeleting(true);
-    try {
-      await dispatch(removeCustomer(customerToDelete.id)).unwrap();
-      toast.success(`${customerToDelete.name} has been deleted successfully.`);
-      setDeleteConfirmOpen(false);
-    } catch (error) {
-      toast.error(`Failed to delete customer: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setIsDeleting(false);
+
+  // Handle actual deletion
+  const handleDeleteConfirm = async () => {
+    if (customerToDelete) {
+      try {
+        await dispatch(removeCustomer(customerToDelete)).unwrap();
+        toast.success('Customer deleted successfully');
+        // Refresh cars data to update UI
+        dispatch(fetchCars());
+      } catch (error) {
+        toast.error(`Failed to delete customer: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     }
+    setDeleteDialogOpen(false);
+    setCustomerToDelete(null);
   };
-  
-  // Filter and search customers
-  const filteredCustomers = customers.filter(customer => {
-    const matchesSearch = 
-      searchTerm === '' || 
+
+  // Handle view cars click
+  const handleViewCarsClick = (customerId: number) => {
+    setSelectedCustomerId(customerId);
+    setCustomerCarsModalOpen(true);
+  };
+
+  // Filter customers based on search term
+  const filteredCustomers = customers.filter(
+    customer => 
       customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       customer.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      customer.phone.includes(searchTerm);
-    
-    const matchesRegion = 
-      filterRegion === 'all' || 
-      (customer.region_code && customer.region_code.toLowerCase() === filterRegion.toLowerCase());
-    
-    return matchesSearch && matchesRegion;
-  });
-  
-  // Sort customers: name alphabetically
-  const sortedCustomers = [...filteredCustomers].sort((a, b) => {
-    return a.name.localeCompare(b.name);
-  });
-  
-  // Get unique region codes for filter dropdown
-  const uniqueRegions = Array.from(
-    new Set(
-      customers
-        .filter(c => c.region_code)
-        .map(c => c.region_code)
-    )
-  ).filter(Boolean) as string[];
-  
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchTerm(e.target.value);
-  };
-  
-  const handleRegionFilterChange = (value: string) => {
-    setFilterRegion(value);
-  };
-  
-  const handleClearFilters = () => {
-    setSearchTerm('');
-    setFilterRegion('all');
-  };
-  
-  if (loading && customers.length === 0) {
-    return <div className="flex items-center justify-center h-40">
-      <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div>
-      <span className="ml-3 text-muted-foreground">Loading customers...</span>
-    </div>;
-  }
-  
-  if (error) {
-    return <div className="p-6 text-center text-destructive">Error loading customers: {error}</div>;
-  }
-  
+      customer.phone.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h1 className="dashboard-section-title">Customers</h1>
-        <Button asChild>
-          <Link to="/customers/add" className="flex items-center gap-2">
-            <Plus size={16} />
-            <span>Add New Customer</span>
-          </Link>
+    <div className="container mx-auto p-4">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold">Customers</h1>
+        <Button 
+          onClick={() => navigate('/customers/new')}
+          variant="taxi"
+          className="flex items-center gap-2"
+        >
+          <UserPlus size={16} />
+          Add Customer
         </Button>
       </div>
-      
-      <Card className="dashboard-card">
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 p-4">
-          <div className="md:col-span-7 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              type="text"
-              className="pl-10"
-              placeholder="Search by name, email or phone"
-              value={searchTerm}
-              onChange={handleSearchChange}
-            />
-          </div>
-          
-          {uniqueRegions.length > 0 && (
-            <div className="md:col-span-4">
-              <Select value={filterRegion} onValueChange={handleRegionFilterChange}>
-                <SelectTrigger>
-                  <div className="flex items-center gap-2">
-                    <MapPin size={16} className="text-muted-foreground" />
-                    <SelectValue placeholder="All Regions" />
+
+      {error && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 text-red-600 rounded-md">
+          {error}
+        </div>
+      )}
+
+      <div className="mb-4 relative">
+        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" size={18} />
+        <Input
+          className="pl-10"
+          placeholder="Search customers by name, email, or phone..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+      </div>
+
+      <div className="border rounded-md shadow-sm">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Email</TableHead>
+              <TableHead>Phone</TableHead>
+              <TableHead>Cars</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={5} className="text-center py-6">
+                  <div className="flex justify-center">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
                   </div>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Regions</SelectItem>
-                  {uniqueRegions.map(region => (
-                    <SelectItem key={region} value={region}>
-                      {region}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-          
-          {(searchTerm || filterRegion !== 'all') && (
-            <div className="md:col-span-1 flex items-center justify-center">
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                onClick={handleClearFilters}
-                aria-label="Clear filters"
-              >
-                <FilterX size={18} />
-              </Button>
-            </div>
-          )}
-        </div>
-      </Card>
-      
-      {sortedCustomers.length === 0 ? (
-        <div className="bg-card border rounded-lg p-12 text-center">
-          <p className="text-muted-foreground">No customers found matching your criteria.</p>
-        </div>
-      ) : (
-        <div className="rounded-lg border overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b bg-card">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Name</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Contact</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Address</th>
-                  {uniqueRegions.length > 0 && (
-                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Tunisia Info</th>
-                  )}
-                  <th className="px-4 py-3 text-center text-xs font-medium text-muted-foreground uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/20">
-                {sortedCustomers.map((customer) => (
-                  <tr key={customer.id} className="bg-card hover:bg-accent/5 transition-colors">
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="text-sm font-medium">
-                        {customer.name}
+                </TableCell>
+              </TableRow>
+            ) : filteredCustomers.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5} className="text-center py-6 text-muted-foreground">
+                  {searchTerm ? 'No customers match your search' : 'No customers found'}
+                </TableCell>
+              </TableRow>
+            ) : (
+              filteredCustomers.map(customer => {
+                const carCount = getCustomerCarCount(customer.id);
+                
+                return (
+                  <TableRow key={customer.id}>
+                    <TableCell className="font-medium">{customer.name}</TableCell>
+                    <TableCell>{customer.email}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        <PhoneCall size={14} className="text-muted-foreground" />
+                        {customer.phone}
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        ID: {customer.id}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="text-sm">{customer.email}</div>
-                      <div className="text-sm">{customer.phone}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="text-sm line-clamp-2">{customer.address}</div>
-                    </td>
-                    {uniqueRegions.length > 0 && (
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {customer.national_id && (
-                          <div className="text-sm">
-                            <span className="font-medium">National ID:</span> {customer.national_id}
-                          </div>
-                        )}
-                        {customer.region_code && (
-                          <div className="text-sm">
-                            <span className="font-medium">Region:</span> {customer.region_code}
-                          </div>
-                        )}
-                      </td>
-                    )}
-                    <td className="px-4 py-3 whitespace-nowrap text-center">
-                      <div className="flex justify-center space-x-2">
-                        <Button variant="outline" size="sm" asChild className="h-8">
-                          <Link to={`/customers/${customer.id}`} className="flex items-center gap-1">
-                            <Eye size={14} />
-                            <span>View</span>
-                          </Link>
-                        </Button>
-                        <Button variant="outline" size="sm" asChild className="h-8">
-                          <Link to={`/customers/${customer.id}/edit`} className="flex items-center gap-1">
-                            <Edit size={14} />
-                            <span>Edit</span>
-                          </Link>
-                        </Button>
-                        <Button variant="outline" size="sm" asChild className="h-8">
-                          <Link to={`/cars?customer=${customer.id}`} className="flex items-center gap-1" onClick={(e) => { e.preventDefault(); handleOpenCarsModal(customer.id, customer.name); }}>
-                            <Car size={14} />
-                            <span>Cars</span>
-                          </Link>
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        onClick={() => handleViewCarsClick(customer.id)}
+                        variant={carCount > 0 ? "default" : "outline"}
+                        size="sm"
+                        className="flex items-center gap-1"
+                      >
+                        <CarIcon size={14} />
+                        {carCount} {carCount === 1 ? 'Car' : 'Cars'}
+                      </Button>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          onClick={() => navigate(`/customers/edit/${customer.id}`)}
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8"
+                        >
+                          <Edit size={14} />
                         </Button>
                         <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 flex items-center gap-1 text-destructive border-destructive/30 hover:bg-destructive/10"
-                          onClick={() => handleDeleteCustomer(customer.id, customer.name)}
+                          onClick={() => handleDeleteClick(customer.id)}
+                          variant="destructive"
+                          size="icon"
+                          className="h-8 w-8"
                         >
                           <Trash2 size={14} />
-                          <span>Delete</span>
                         </Button>
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-      
-      <div className="text-sm text-muted-foreground">
-        Showing {sortedCustomers.length} of {customers.length} customers
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
       </div>
-      
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the customer
+              and potentially affect associated cars.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteConfirm} className="bg-destructive text-destructive-foreground">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Customer Cars Modal */}
-      {selectedCustomer && (
-        <CustomerCarsModal
-          customerId={selectedCustomer.id}
-          customerName={selectedCustomer.name}
-          open={carsModalOpen}
-          onOpenChange={setCarsModalOpen}
-        />
-      )}
-      
-      {/* Delete Confirmation Modal */}
-      {customerToDelete && (
-        <DeleteConfirmation
-          open={deleteConfirmOpen}
-          onOpenChange={setDeleteConfirmOpen}
-          onConfirm={confirmDeleteCustomer}
-          title="Delete Customer"
-          description="Are you sure you want to delete this customer? This action cannot be undone and will also delete all cars associated with this customer."
-          isLoading={isDeleting}
-          itemName={customerToDelete.name}
-        />
-      )}
+      <CustomerCarsModal 
+        open={customerCarsModalOpen} 
+        onOpenChange={setCustomerCarsModalOpen} 
+        customerId={selectedCustomerId} 
+      />
     </div>
   );
 };

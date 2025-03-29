@@ -1,240 +1,262 @@
-import React, { useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import React, { useEffect, useState, memo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../../store';
-import { fetchCars } from '../../store/slices/carSlice';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Input } from '../ui/input';
+import { fetchCars, removeCar } from '../../store/slices/carSlice';
+import { fetchCustomers, fetchCustomerById } from '../../store/slices/customerSlice';
 import { Button } from '../ui/button';
-import { Search, Plus, Eye, Edit, Settings } from 'lucide-react';
+import { Input } from '../ui/input';
+import { toast } from 'react-toastify';
+import { PlusCircle, Search, Trash2, Edit, User, Calendar } from 'lucide-react';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../ui/select";
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../ui/table';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../ui/alert-dialog';
+
+// CustomerName component as a memoized component to prevent unnecessary re-renders
+const CustomerName = memo(({ customerId }: { customerId: number | null }) => {
+  const [customerName, setCustomerName] = useState<string>(customerId ? 'Loading...' : 'No Customer');
+  const customerList = useAppSelector(state => state.customers.customers);
+  const dispatch = useAppDispatch();
+  
+  useEffect(() => {
+    if (!customerId) {
+      setCustomerName('No Customer');
+      return;
+    }
+    
+    // Reset state when customerId changes
+    setCustomerName('Loading...'); 
+    
+    // First try to find the customer in the Redux store
+    // Normalize the customer ID to ensure consistent comparison
+    const normalizedCustomerId = typeof customerId === 'string' ? parseInt(customerId, 10) : customerId;
+    
+    // Find customer with normalized ID comparison
+    const customer = customerList.find(c => {
+      // Normalize customer ID from the list
+      const normalizedCustomerListId = typeof c.id === 'string' ? parseInt(c.id, 10) : c.id;
+      
+      // Compare normalized IDs
+      return normalizedCustomerListId === normalizedCustomerId;
+    });
+    
+    if (customer) {
+      setCustomerName(customer.name);
+      return;
+    }
+    
+    // If not found in store, fetch from API
+    const fetchCustomer = async () => {
+      try {
+        // Ensure customerId is a number before API call
+        const idForFetch = typeof customerId === 'string' ? parseInt(customerId, 10) : customerId;
+        const result = await dispatch(fetchCustomerById(idForFetch)).unwrap();
+        setCustomerName(result.name);
+      } catch (error) {
+        console.error(`Error fetching customer ${customerId}:`, error);
+        setCustomerName('Unknown Customer');
+      }
+    };
+    
+    fetchCustomer();
+  }, [customerId, customerList, dispatch]);
+  
+  return <span className="text-sm">{customerName}</span>;
+});
 
 const CarsList: React.FC = () => {
   const dispatch = useAppDispatch();
+  const navigate = useNavigate();
   const { cars, loading, error } = useAppSelector(state => state.cars);
-  const [searchParams] = useSearchParams();
-  
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterBy, setFilterBy] = useState<'all' | 'customer'>('all');
-  const [customerId, setCustomerId] = useState('');
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [carToDelete, setCarToDelete] = useState<number | null>(null);
   
+  // Load cars and customers data
   useEffect(() => {
-    dispatch(fetchCars());
+    const loadData = async () => {
+      try {
+        await Promise.all([
+          dispatch(fetchCars()).unwrap(),
+          dispatch(fetchCustomers()).unwrap()
+        ]);
+      } catch (error) {
+        console.error('Error loading data:', error);
+      }
+    };
     
-    // Check for customer query parameter
-    const customerParam = searchParams.get('customer');
-    if (customerParam) {
-      setFilterBy('customer');
-      setCustomerId(customerParam);
-    }
-  }, [dispatch, searchParams]);
+    loadData();
+    
+    // Refresh data every 30 seconds
+    const refreshInterval = setInterval(() => {
+      loadData();
+    }, 30000);
+    
+    return () => clearInterval(refreshInterval);
+  }, [dispatch]);
   
-  // Filter and search cars
-  const filteredCars = cars.filter(car => {
-    const matchesSearch = 
-      searchTerm === '' || 
+  // Handle delete confirmation
+  const handleDeleteClick = (carId: number) => {
+    setCarToDelete(carId);
+    setDeleteDialogOpen(true);
+  };
+  
+  // Handle actual deletion
+  const handleDeleteConfirm = async () => {
+    if (carToDelete) {
+      try {
+        await dispatch(removeCar(carToDelete)).unwrap();
+        toast.success('Car deleted successfully');
+      } catch (error) {
+        toast.error(`Failed to delete car: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+    setDeleteDialogOpen(false);
+    setCarToDelete(null);
+  };
+  
+  // Filter cars based on search term
+  const filteredCars = cars.filter(
+    car => 
       car.make.toLowerCase().includes(searchTerm.toLowerCase()) ||
       car.model.toLowerCase().includes(searchTerm.toLowerCase()) ||
       car.license_plate.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (car.vin && car.vin.toLowerCase().includes(searchTerm.toLowerCase()));
-    
-    const matchesFilter = 
-      filterBy === 'all' || 
-      (filterBy === 'customer' && customerId !== '' && car.customer_id === parseInt(customerId));
-    
-    return matchesSearch && matchesFilter;
-  });
+      (car.year && car.year.toString().includes(searchTerm))
+  );
   
-  // Sort cars: newest first based on created_at
-  const sortedCars = [...filteredCars].sort((a, b) => {
-    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-  });
-  
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchTerm(e.target.value);
-  };
-  
-  const handleFilterChange = (value: string) => {
-    setFilterBy(value as 'all' | 'customer');
-    
-    if (value !== 'customer') {
-      setCustomerId('');
-    }
-  };
-  
-  const handleCustomerIdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setCustomerId(e.target.value);
-  };
-  
-  // Main container that's always rendered regardless of state
   return (
-    <div className="min-h-screen bg-muted/30">
-      <div className="p-6 max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-bold">Cars</h1>
-          <Link to="/cars/add">
-            <Button variant="taxi" className="flex items-center">
-              <Plus size={16} className="mr-2" /> Add New Car
-            </Button>
-          </Link>
-        </div>
-        
-        {loading && cars.length === 0 ? (
-          <Card className="mb-6 border border-border shadow-md">
-            <CardContent className="flex items-center justify-center py-16">
-              <div className="animate-pulse text-taxi-dark font-medium">Loading cars...</div>
-            </CardContent>
-          </Card>
-        ) : error ? (
-          <Card className="mb-6 border border-border shadow-md">
-            <CardContent className="flex items-center justify-center py-16">
-              <div className="text-destructive">Error loading cars: {error}</div>
-            </CardContent>
-          </Card>
-        ) : (
-          <>
-            <Card className="mb-6 border border-border shadow-md">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg font-medium">Search</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <label htmlFor="search" className="block text-sm font-medium">
-                      Search
-                    </label>
-                    <div className="relative">
-                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        id="search"
-                        className="pl-8"
-                        placeholder="Search by make, model, license plate or VIN"
-                        value={searchTerm}
-                        onChange={handleSearchChange}
-                      />
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <label htmlFor="filter" className="block text-sm font-medium">
-                      Filter By
-                    </label>
-                    <Select
-                      value={filterBy}
-                      onValueChange={handleFilterChange}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select filter" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Cars</SelectItem>
-                        <SelectItem value="customer">Customer ID</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  
-                  {filterBy === 'customer' && (
-                    <div className="space-y-2">
-                      <label htmlFor="customerId" className="block text-sm font-medium">
-                        Customer ID
-                      </label>
-                      <Input
-                        type="number"
-                        id="customerId"
-                        placeholder="Enter customer ID"
-                        value={customerId}
-                        onChange={handleCustomerIdChange}
-                      />
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-            
-            {sortedCars.length === 0 ? (
-              <Card className="flex items-center justify-center h-48 rounded-lg border border-border shadow-md">
-                <CardContent>
-                  <p className="text-muted-foreground">No cars found matching your criteria.</p>
-                </CardContent>
-              </Card>
-            ) : (
-              <Card className="rounded-lg border border-border overflow-hidden shadow-md">
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="bg-muted/50 border-b border-border">
-                        <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Car</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">License Plate</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Customer ID</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Mileage</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Daily</th>
-                        <th className="px-4 py-3 text-center text-xs font-medium text-muted-foreground uppercase tracking-wider">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {sortedCars.map((car) => (
-                        <tr key={car.id} className="hover:bg-muted/20">
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <div className="text-sm font-medium">
-                              {car.year} {car.make} {car.model}
-                            </div>
-                            {car.vin && (
-                              <div className="text-xs text-muted-foreground">
-                                VIN: {car.vin}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <div className="text-sm font-medium">{car.license_plate}</div>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-muted-foreground">
-                            {car.customer_id}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm">
-                            {car.current_mileage.toLocaleString()} miles
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm">
-                            {car.average_daily_mileage.toFixed(1)} miles/day
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm">
-                            <div className="flex justify-center space-x-2">
-                              <Link to={`/cars/${car.id}`}>
-                                <Button variant="outline" size="sm" className="h-8 px-2 text-xs">
-                                  <Eye size={14} className="mr-1" /> View
-                                </Button>
-                              </Link>
-                              <Link to={`/cars/${car.id}/edit`}>
-                                <Button variant="outline" size="sm" className="h-8 px-2 text-xs text-taxi-yellow border-taxi-yellow/30 hover:bg-taxi-yellow/10">
-                                  <Edit size={14} className="mr-1" /> Edit
-                                </Button>
-                              </Link>
-                              <Link to={`/car-predictions/${car.id}`}>
-                                <Button variant="outline" size="sm" className="h-8 px-2 text-xs">
-                                  <Settings size={14} className="mr-1" /> Service
-                                </Button>
-                              </Link>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="px-4 py-3 bg-muted/20 border-t border-border">
-                  <div className="text-sm text-muted-foreground">
-                    Showing {sortedCars.length} of {cars.length} cars
-                  </div>
-                </div>
-              </Card>
-            )}
-          </>
-        )}
+    <div className="container mx-auto p-4">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold">Cars</h1>
+        <Button 
+          onClick={() => navigate('/cars/new')}
+          variant="taxi"
+          className="flex items-center gap-2"
+        >
+          <PlusCircle size={16} />
+          Add Car
+        </Button>
       </div>
+      
+      {error && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 text-red-600 rounded-md">
+          {error}
+        </div>
+      )}
+      
+      <div className="mb-4 relative">
+        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" size={18} />
+        <Input
+          className="pl-10"
+          placeholder="Search cars by make, model, or license plate..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+      </div>
+      
+      <div className="border rounded-md shadow-sm">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Make & Model</TableHead>
+              <TableHead>Year</TableHead>
+              <TableHead>License Plate</TableHead>
+              <TableHead>Customer</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={5} className="text-center py-6">
+                  <div className="flex justify-center">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : filteredCars.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5} className="text-center py-6 text-muted-foreground">
+                  {searchTerm ? 'No cars match your search' : 'No cars found'}
+                </TableCell>
+              </TableRow>
+            ) : (
+              filteredCars.map(car => (
+                <TableRow key={car.id}>
+                  <TableCell className="font-medium">
+                    {car.make} {car.model}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1">
+                      <Calendar size={14} className="text-muted-foreground" />
+                      {car.year}
+                    </div>
+                  </TableCell>
+                  <TableCell>{car.license_plate}</TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1">
+                      <User size={14} className="text-muted-foreground" />
+                      <CustomerName customerId={car.customer_id} />
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        onClick={() => navigate(`/cars/edit/${car.id}`)}
+                        variant="outline"
+                        size="icon"
+                        className="h-8 w-8"
+                      >
+                        <Edit size={14} />
+                      </Button>
+                      <Button
+                        onClick={() => handleDeleteClick(car.id)}
+                        variant="destructive"
+                        size="icon"
+                        className="h-8 w-8"
+                      >
+                        <Trash2 size={14} />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+      
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the car.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteConfirm} className="bg-destructive text-destructive-foreground">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

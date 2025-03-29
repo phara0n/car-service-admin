@@ -12,6 +12,7 @@ import {
   updateMileage,
   getCarsByCustomerId
 } from '../../api/cars';
+import { fetchCustomerById } from '../slices/customerSlice';
 
 // Define the state type
 interface CarState {
@@ -48,10 +49,13 @@ export const fetchCarsByCustomerId = createAsyncThunk<Car[], number>(
   'cars/fetchCarsByCustomerId',
   async (customerId, { rejectWithValue }) => {
     try {
+      console.log(`fetchCarsByCustomerId thunk - Fetching cars for customer ID: ${customerId}`);
       const cars = await getCarsByCustomerId(customerId);
+      console.log(`fetchCarsByCustomerId thunk - Found ${cars.length} cars for customer ${customerId}`);
       return cars;
     } catch (error) {
-      return rejectWithValue(error instanceof Error ? error.message : 'Failed to fetch customer cars');
+      console.error('Error in fetchCarsByCustomerId:', error);
+      return rejectWithValue(error instanceof Error ? error.message : 'Failed to fetch cars');
     }
   }
 );
@@ -70,15 +74,15 @@ export const fetchCarById = createAsyncThunk<Car, number>(
 
 export const addCar = createAsyncThunk<Car, Partial<Car>>(
   'cars/addCar',
-  async (carData, { rejectWithValue }) => {
+  async (carData, { rejectWithValue, dispatch }) => {
     try {
-      // Ensure customer_id is provided
-      if (!carData.customer_id) {
-        return rejectWithValue('Customer ID is required');
-      }
-      
-      const newCar = await createCar({
-        customer_id: carData.customer_id,
+      // Create a type-safe car object with required fields
+      const sanitizedData: Omit<Car, 'id' | 'created_at' | 'updated_at' | 'average_daily_mileage'> = {
+        customer_id: carData.customer_id === undefined || carData.customer_id === null
+          ? null
+          : (typeof carData.customer_id === 'string'
+              ? parseInt(carData.customer_id, 10)
+              : carData.customer_id),
         make: carData.make || '',
         model: carData.model || '',
         year: carData.year || new Date().getFullYear(),
@@ -89,7 +93,20 @@ export const addCar = createAsyncThunk<Car, Partial<Car>>(
         customs_clearance_number: carData.customs_clearance_number,
         technical_visit_date: carData.technical_visit_date,
         insurance_category: carData.insurance_category
-      });
+      };
+      
+      console.log('addCar thunk - Sanitized data:', sanitizedData);
+      
+      const newCar = await createCar(sanitizedData);
+      
+      // Refresh all cars to ensure state is updated
+      dispatch(fetchCars());
+      // If the car has a customer, fetch that customer's details
+      if (newCar.customer_id) {
+        console.log('Fetching customer details for new car with customer_id:', newCar.customer_id);
+        dispatch(fetchCustomerById(newCar.customer_id));
+      }
+      
       return newCar;
     } catch (error) {
       return rejectWithValue(error instanceof Error ? error.message : 'Failed to add car');
@@ -99,9 +116,30 @@ export const addCar = createAsyncThunk<Car, Partial<Car>>(
 
 export const editCar = createAsyncThunk<Car, { carId: number; carData: Partial<Car> }>(
   'cars/editCar',
-  async ({ carId, carData }, { rejectWithValue }) => {
+  async ({ carId, carData }, { rejectWithValue, dispatch }) => {
     try {
-      const updatedCar = await updateCar(carId, carData);
+      console.log('editCar thunk - Original data:', carData);
+      
+      // Ensure customer_id is properly formatted
+      const sanitizedData = {
+        ...carData,
+        customer_id: carData.customer_id === undefined || carData.customer_id === null
+          ? null
+          : (typeof carData.customer_id === 'string'
+              ? parseInt(carData.customer_id, 10)
+              : carData.customer_id)
+      };
+      
+      console.log('editCar thunk - Sanitized data:', sanitizedData);
+      
+      const updatedCar = await updateCar(carId, sanitizedData);
+      
+      // If the car has a customer, fetch that customer's details
+      if (updatedCar.customer_id) {
+        console.log('Fetching customer details for updated car with customer_id:', updatedCar.customer_id);
+        dispatch(fetchCustomerById(updatedCar.customer_id));
+      }
+      
       return updatedCar;
     } catch (error) {
       return rejectWithValue(error instanceof Error ? error.message : 'Failed to update car');
@@ -228,10 +266,18 @@ const carSlice = createSlice({
         const index = state.cars.findIndex(car => car.id === action.payload.id);
         if (index !== -1) {
           state.cars[index] = action.payload;
+        } else {
+          // If the car wasn't found, add it to the array
+          state.cars.push(action.payload);
         }
+        
+        // Update selectedCar if it matches the updated car's id
         if (state.selectedCar && state.selectedCar.id === action.payload.id) {
           state.selectedCar = action.payload;
         }
+        
+        console.log('Car updated in store:', action.payload);
+        console.log('Updated car customer_id:', action.payload.customer_id);
       })
       .addCase(editCar.rejected, (state, action) => {
         state.loading = false;
